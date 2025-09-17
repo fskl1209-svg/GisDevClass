@@ -2,6 +2,8 @@
 const FullScreen = ol.control.FullScreen;
 const OverviewMap = ol.control.OverviewMap;
 const ZoomSlider = ol.control.ZoomSlider;
+const DragRotateAndZoom = ol.interaction.DragRotateAndZoom;
+const defaultInteractions = ol.interaction.defaults;
 
 const source = new ol.source.OSM();
 const overviewMapControl = new OverviewMap({
@@ -19,6 +21,7 @@ const view = new ol.View({
 
 //new ol.Map() 建立地圖
 var map = new ol.Map({
+  interactions: defaultInteractions().extend([new DragRotateAndZoom()]),
   controls: defaultControls().extend([overviewMapControl,new FullScreen,new ZoomSlider()]),
   target: 'map',
   layers: [
@@ -26,5 +29,5 @@ var map = new ol.Map({
       source: source
     })
   ],
-  view: view
+  view: view,
 });
