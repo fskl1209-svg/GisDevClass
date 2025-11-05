@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/css/ol.css" type="text/css" />
+  <style>
+    body {
+      font-family: "Microsoft JhengHei", sans-serif;
+      margin: 10px;
+    }
+    .map {
+      width: 100%;
+      height: 480px;
+      margin-bottom: 10px;
+    }
+    .ol-tooltip {
+      position: relative;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 4px;
+      color: white;
+      padding: 4px 8px;
+      opacity: 0.7;
+      white-space: nowrap;
+      font-size: 12px;
+      cursor: default;
+      user-select: none;
+    }
+    .ol-tooltip-measure {
+      opacity: 1;
+      font-weight: bold;
+    }
+    .ol-tooltip-static {
+      background-color: #ffcc33;
+      color: black;
+      border: 1px solid white;
+    }
+    .ol-tooltip-measure:before,
+    .ol-tooltip-static:before {
+      border-top: 6px solid rgba(0, 0, 0, 0.5);
+      border-right: 6px solid transparent;
+      border-left: 6px solid transparent;
+      content: "";
+      position: absolute;
+      bottom: -6px;
+      margin-left: -7px;
+      left: 50%;
+    }
+    .ol-tooltip-static:before {
+      border-top-color: #ffcc33;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/build/ol.js"></script>
+  <title>中區甜點推薦地圖</title>
+</head>
+<body>
+  <h2>中區甜點推薦地圖</h2>
+
+  <div id="map" class="map"></div>
+
+  <!-- 控制功能按鈕 -->
+  <form>
+    <h4>📍 地圖控制功能</h4>
+    <input type="button" value="起始位置" onclick="GoInitView();" />
+    <input type="button" value="順旋45度" onclick="AnimateRotateViewRight();" />
+    <input type="button" value="逆旋45度" onclick="AnimateRotateViewLeft();" />
+    <input type="button" value="CJSJ" onclick="PanToCJSJ();" />
+    <input type="button" value="法芙尼" onclick="PanToFFN();" />
+    <input type="button" value="法布甜" onclick="PanToFBT();" />
+    <input type="button" value="回憶甜點" onclick="PanToHYTD();" />
+    <input type="button" value="AB法國人的甜點店" onclick="PanToAB();" />
+    <input type="button" value="蒔初甜點五權店" onclick="PanToSTSUTD();" />
+  </form>
+
+  <hr>
+
+  <!-- 量測功能 -->
+  <form>
+    <h4>📏 量測工具</h4>
+    <input type="button" value="開始量測" onclick="startMeasure();" />
+    <input type="button" value="停止量測" onclick="stopMeasure();" />
+    <label>量測類型：</label>
+    <select id="VectorType" onchange="typeSelectChanged();">
+      <option value="LineString">距離量測</option>
+      <option value="Polygon">面積量測</option>
+    </select>
+    <input type="button" value="清除圖徵" onclick="clearVectorFeature();" />
+    &nbsp; <span id="labMeasureResult" style="font-weight:bold;color:#333;"></span>
+  </form>
+
+  <hr>
+  
+  <!-- 店家連結 -->
+  <div style="margin-top: 15px;">
+    <h4>🍰 推薦甜點店連結</h4>
+    <ul style="line-height:1.8;">
+      <li><a href="https://www.facebook.com/CJSJgastronomie/" target="_blank">CJSJ</a></li>
+      <li><a href="https://www.facebook.com/fafne.888/" target="_blank">法芙尼 FAFFNIR</a></li>
+      <li><a href="https://www.arbaking.com.tw/" target="_blank">法布甜 Fabourg</a></li>
+      <li><a href="https://www.facebook.com/memorydessert/" target="_blank">回憶甜點 Memory Dessert</a></li>
+      <li><a href="https://atelierbaulois.meepshoper.com/" target="_blank">AB 法國人的甜點店</a></li>
+      <li><a href="https://www.facebook.com/originla/" target="_blank">蒔初甜點五權店</a></li>
+    </ul>
+  </div>
+
+  <script>
+    //--------------------- 地圖初始化 ---------------------
+    const initCenter = ol.proj.fromLonLat([120.6465, 24.1788]);
+    const initZoom = 14;
+
+    const view = new ol.View({
+      center: initCenter,
+      zoom: initZoom,
+      rotation: 0,
+    });
+
+    const measureLayer = new ol.layer.Vector({
+      source: new ol.source.Vector(),
+      style: new ol.style.Style({
+        fill: new ol.style.Fill({ color: "rgba(255, 255, 255, 0.2)" }),
+        stroke: new ol.style.Stroke({ color: "#ffcc33", width: 2 }),
+        image: new ol.style.Circle({
+          radius: 7,
+          fill: new ol.style.Fill({ color: "#ffcc33" }),
+        }),
+      }),
+    });
+
+    const map = new ol.Map({
+      target: "map",
+      layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), measureLayer],
+      view: view,
+    });
+
+//--------------------- 地圖控制功能 ---------------------
+//------------- 加上地標（Markers） -------------
+const locations = [
+  { name: "CJSJ", coord: [120.6640, 24.1448] },
+  { name: "法芙尼", coord: [120.6643, 24.1507] },
+  { name: "法布甜", coord: [120.6524, 24.1599] },
+  { name: "回憶甜點", coord: [120.6766, 24.1641] },
+  { name: "AB法國人的甜點店", coord: [120.6612, 24.1250] },
+  { name: "蒔初甜點五權店", coord: [120.6588, 24.1250] },
+];
+
+// 建立一個向量來源 (Vector Source)
+const markerSource = new ol.source.Vector();
+
+// 為每個地點建立 Feature（地標）
+locations.forEach((loc) => {
+  const feature = new ol.Feature({
+    geometry: new ol.geom.Point(ol.proj.fromLonLat(loc.coord)),
+    name: loc.name,
+  });
+  markerSource.addFeature(feature);
+});
+
+// 樣式設定：黃色圓點 + 名稱標籤
+const markerStyle = new ol.style.Style({
+  image: new ol.style.Circle({
+    radius: 6,
+    fill: new ol.style.Fill({ color: "#ffcc33" }),
+    stroke: new ol.style.Stroke({ color: "#333", width: 1 }),
+  }),
+  text: new ol.style.Text({
+    font: "12px Microsoft JhengHei",
+    offsetY: -15,
+    fill: new ol.style.Fill({ color: "#000" }),
+    stroke: new ol.style.Stroke({ color: "#fff", width: 3 }),
+  }),
+});
+
+// 創建地標圖層
+const markerLayer = new ol.layer.Vector({
+  source: markerSource,
+  style: function (feature) {
+    const style = markerStyle.clone();
+    style.getText().setText(feature.get("name"));
+    return style;
+  },
+});
+
+// 將地標圖層加入地圖
+map.addLayer(markerLayer);
+
+//--------------------- 點擊地標顯示名稱 ---------------------
+const popup = document.createElement("div");
+popup.style.background = "white";
+popup.style.padding = "5px 10px";
+popup.style.borderRadius = "5px";
+popup.style.border = "1px solid #ccc";
+popup.style.fontFamily = "Microsoft JhengHei";
+popup.style.fontSize = "12px";
+const popupOverlay = new ol.Overlay({
+  element: popup,
+  positioning: "bottom-center",
+  offset: [0, -10],
+});
+map.addOverlay(popupOverlay);
+
+map.on("singleclick", function (evt) {
+  const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f);
+  if (feature && feature.get("name")) {
+    popup.innerHTML = feature.get("name");
+    popupOverlay.setPosition(evt.coordinate);
+  } else {
+    popupOverlay.setPosition(undefined);
+  }
+});
+
+    const CJSJ = ol.proj.fromLonLat([120.6640, 24.1448])// CJSJ
+    const FFN = ol.proj.fromLonLat([120.6643, 24.1507]) // 法芙尼
+    const FBT = ol.proj.fromLonLat([120.6524, 24.1599]) // 法布甜
+    const HYTD = ol.proj.fromLonLat([120.6766, 24.1641]) // 回憶甜點
+    const AB = ol.proj.fromLonLat([120.6612, 24.1250]) // AB法國人的甜點店
+    const STSUTD = ol.proj.fromLonLat([120.6588, 24.1250]) // 蒔初甜點
+
+    function GoInitView() {
+      view.animate({ center: initCenter, duration: 1500 });
+    }
+
+    function PanToCJSJ() {
+      view.animate({ center: CJSJ, duration: 1500 });
+    }
+
+    function PanToFFN() {
+      view.animate({ center: FFN, duration: 1500 });
+    }
+
+    function PanToFBT() {
+      view.animate({ center: FBT, duration: 1500 });
+    }
+
+    function PanToHYTD() {
+      view.animate({ center: HYTD, duration: 1500 });
+    }
+
+    function PanToAB() {
+      view.animate({ center: AB, duration: 1500 });
+    }
+
+    function PanToSTSUTD() {
+      view.animate({ center: STSUTD, duration: 1500 });
+    }
+
+    function FlyToTMNS() {
+      const duration = 2000;
+      const zoom = view.getZoom();
+      view.animate(
+        { zoom: zoom - 2, duration: duration / 2 },
+        { center: tmns, duration: duration },
+        { zoom: zoom, duration: duration / 2 }
+      );
+    }
+
+    function BounceToWFP() {
+      const duration = 2000;
+      const parts = 4;
+      let bounce = 0;
+
+      function bounceStep() {
+        const offset = Math.sin((bounce / parts) * Math.PI) * 200;
+        const newCenter = [wfp[0], wfp[1] + offset / Math.pow(2, bounce)];
+        view.animate({
+          center: newCenter,
+          duration: duration / parts,
+          complete: () => {
+            bounce++;
+            if (bounce < parts) bounceStep();
+            else view.animate({ center: wfp, duration: 500 });
+          },
+        });
+      }
+
+      bounceStep();
+    }
+
+    function SpinToTMNS() {
+      const duration = 3000;
+      const start = +new Date();
+      const rotationStart = view.getRotation();
+      const rotationEnd = rotationStart + Math.PI * 2;
+
+      function spinAnimation() {
+        const elapsed = +new Date() - start;
+        const fraction = elapsed / duration;
+        if (fraction < 1) {
+          view.setRotation(rotationStart + (rotationEnd - rotationStart) * fraction);
+          view.setCenter([
+            fcu[0] + (tmns[0] - fcu[0]) * fraction,
+            fcu[1] + (tmns[1] - fcu[1]) * fraction,
+          ]);
+          requestAnimationFrame(spinAnimation);
+        } else {
+          view.setRotation(rotationEnd);
+          view.setCenter(tmns);
+        }
+      }
+      spinAnimation();
+    }
+
+    //--------------------- 量測功能 ---------------------
+    let draw, measureTooltip, measureTooltipElement;
+    let vectorType = "LineString";
+
+    function startMeasure() {
+      stopMeasure();
+      addInteraction();
+    }
+
+    function stopMeasure() {
+      if (draw) {
+        map.removeInteraction(draw);
+        draw = null;
+      }
+    }
+
+    function clearVectorFeature() {
+      measureLayer.getSource().clear();
+      if (measureTooltipElement) {
+        measureTooltipElement.parentNode.removeChild(measureTooltipElement);
+      }
+      document.getElementById("labMeasureResult").textContent = "";
+    }
+
+    function typeSelectChanged() {
+      vectorType = document.getElementById("VectorType").value;
+      stopMeasure();
+    }
+
+    function createMeasureTooltip() {
+      if (measureTooltipElement) {
+        measureTooltipElement.parentNode.removeChild(measureTooltipElement);
+      }
+      measureTooltipElement = document.createElement("div");
+      measureTooltipElement.className = "ol-tooltip ol-tooltip-measure";
+      measureTooltip = new ol.Overlay({
+        element: measureTooltipElement,
+        offset: [0, -15],
+        positioning: "bottom-center",
+      });
+      map.addOverlay(measureTooltip);
+    }
+
+    function addInteraction() {
+      const source = measureLayer.getSource();
+      draw = new ol.interaction.Draw({
+        source: source,
+        type: vectorType,
+        style: new ol.style.Style({
+          fill: new ol.style.Fill({ color: "rgba(255, 255, 255, 0.2)" }),
+          stroke: new ol.style.Stroke({
+            color: "rgba(0, 0, 0, 0.5)",
+            lineDash: [10, 10],
+            width: 2,
+          }),
+          image: new ol.style.Circle({
+            radius: 5,
+            stroke: new ol.style.Stroke({ color: "rgba(0, 0, 0, 0.7)" }),
+            fill: new ol.style.Fill({ color: "rgba(255, 255, 255, 0.2)" }),
+          }),
+        }),
+      });
+
+      map.addInteraction(draw);
+      createMeasureTooltip();
+
+      let listener;
+      draw.on("drawstart", function (evt) {
+        const sketch = evt.feature;
+        let tooltipCoord = evt.coordinate;
+
+        listener = sketch.getGeometry().on("change", function (evt) {
+          const geom = evt.target;
+          let output;
+          if (geom instanceof ol.geom.Polygon) {
+            output = formatArea(geom);
+            tooltipCoord = geom.getInteriorPoint().getCoordinates();
+          } else if (geom instanceof ol.geom.LineString) {
+            output = formatLength(geom);
+            tooltipCoord = geom.getLastCoordinate();
+          }
+          measureTooltipElement.innerHTML = output;
+          measureTooltip.setPosition(tooltipCoord);
+          document.getElementById("labMeasureResult").textContent = "量測結果：" + output;
+        });
+      });
+
+      draw.on("drawend", function () {
+        measureTooltipElement.className = "ol-tooltip ol-tooltip-static";
+        measureTooltip.setOffset([0, -7]);
+        measureTooltipElement = null;
+        createMeasureTooltip();
+        ol.Observable.unByKey(listener);
+      });
+    }
+
+    function formatLength(line) {
+      const length = ol.sphere.getLength(line);
+      return length > 1000
+        ? (Math.round((length / 1000) * 100) / 100) + " 公里"
+        : Math.round(length) + " 公尺";
+    }
+
+    function formatArea(polygon) {
+      const area = ol.sphere.getArea(polygon);
+      return area > 1000000
+        ? (Math.round((area / 1000000) * 100) / 100) + " 平方公里"
+        : Math.round(area) + " 平方公尺";
+    }
+
+  </script>
+</body>
+</html>
