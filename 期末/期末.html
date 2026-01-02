@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>中區甜點推薦地圖</title>
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/css/ol.css">
+<script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.9.0/build/ol.js"></script>
+<style>
+  body { font-family: "Microsoft JhengHei", sans-serif; margin:10px; }
+  #map { width:100%; height:520px; border:1px solid #aaa; }
+  .panel { margin-top:10px; padding:10px; border:1px solid #ccc; background:#f9f9f9; }
+  button { margin:2px; }
+  input[type="text"] { width:120px; }
+  #popup { 
+    position:absolute; 
+    background:white; 
+    padding:5px 10px; 
+    border-radius:5px; 
+    border:1px solid #ccc; 
+    font-family:Microsoft JhengHei; 
+    font-size:12px; 
+    display:none; 
+    z-index:999;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>🍰 中區甜點推薦地圖</h2>
+
+<div id="map"></div>
+
+<!-- 指北針 -->
+<img src="https://upload.wikimedia.org/wikipedia/commons/e/ec/Compass_rose_pale.svg"
+     style="position:absolute;top:15px;right:15px;width:60px;z-index:999;">
+
+<!-- Popup 容器 -->
+<div id="popup"></div>
+
+<!-- 功能控制面板 -->
+<div class="panel">
+  <h4>📍 地圖控制</h4>
+  <button onclick="GoInitView()">起始位置</button>
+  <button onclick="PanToCJSJ()">CJSJ</button>
+  <button onclick="PanToFFN()">法芙尼</button>
+  <button onclick="PanToFBT()">法布甜</button>
+  <button onclick="PanToHYTD()">回憶甜點</button>
+  <button onclick="PanToAB()">AB</button>
+  <button onclick="PanToSTSUTD()">蒔初甜點</button>
+
+  <hr>
+
+  <h4>📐 量測工具</h4>
+  <button onclick="addMeasure('LineString')">測距</button>
+  <button onclick="addMeasure('Polygon')">測面</button>
+
+  <hr>
+
+  <h4>🔍 座標定位</h4>
+  經度 <input type="text" id="lon" placeholder="120.6483">
+  緯度 <input type="text" id="lat" placeholder="24.1799">
+  <button onclick="goToCoord()">定位</button>
+
+  <hr>
+
+  <h4>🔎 搜尋甜點店</h4>
+  <input type="text" id="searchBox" placeholder="輸入店家名稱">
+  <button onclick="searchLocation()">搜尋</button>
+
+  <hr>
+
+  <h4>📊 底圖透明度</h4>
+  <input type="range" min="0" max="1" step="0.1" value="1" onchange="setOpacity(this.value)">
+
+  <hr>
+
+  <!-- ⭐ 新增：最愛篩選 -->
+  <h4>❤️ 最愛篩選</h4>
+  <label>
+    <input type="checkbox" id="favFilter" onchange="toggleFavFilter(this.checked)">
+    只顯示最愛店家
+  </label>
+</div>
+
+<!-- 甜點店清單 -->
+<div class="panel">
+  <h4>📋 甜點店清單（點擊定位）</h4>
+  <ul id="shopList" style="list-style:none;padding-left:0;"></ul>
+</div>
+
+<script>
+/* ===== 地圖初始化 ===== */
+const initCenter = ol.proj.fromLonLat([120.6465,24.1788]);
+const view = new ol.View({ center:initCenter, zoom:14 });
+const raster = new ol.layer.Tile({ source: new ol.source.OSM() });
+const map = new ol.Map({ target:"map", layers:[raster], view:view });
+
+/* ===== 甜點點位資料 ===== */
+const locations = [
+  { name:"CJSJ", coord:[120.6640,24.1448],
+    info:`<b>CJSJ</b><br>法式手工甜點店<br>
+    <a href='https://www.facebook.com/CJSJgastronomie' target='_blank'>FB粉絲專頁</a>` },
+
+  { name:"法芙尼", coord:[120.6643,24.1507],
+    info:`<b>法芙尼</b><br>法式烘焙甜點<br>
+    <a href='https://www.facebook.com/fafne.888/?locale=zh_TW' target='_blank'>FB粉絲專頁</a>` },
+
+  { name:"法布甜", coord:[120.6524,24.1599],
+    info:`<b>法布甜</b><br>法式焦糖布丁<br>
+    <a href='https://www.facebook.com/FaDiTianDianShiJiaArsPatisserie/?locale=zh_TW' target='_blank'>FB粉絲專頁</a>` },
+
+  { name:"回憶甜點", coord:[120.6766,24.1641],
+    info:`<b>回憶甜點</b><br>懷舊手作甜點<br>
+    <a href='https://www.facebook.com/memorycakesweet/?locale=zh_TW' target='_blank'>FB粉絲專頁</a>` },
+
+  { name:"AB 法國人的甜點店", coord:[120.6612,24.1250],
+    info:`<b>AB</b><br>可麗露專賣<br>
+    <a href='https://www.facebook.com/atelierbaulois/?locale=zh_TW' target='_blank'>FB粉絲專頁</a>` },
+
+  { name:"蒔初甜點", coord:[120.6588,24.1250],
+    info:`<b>蒔初甜點</b><br>手工生乳捲<br>
+    <a href='https://www.facebook.com/originla/?locale=zh_TW' target='_blank'>FB粉絲專頁</a>` }
+];
+
+/* ===== 讀取最愛資料 ===== */
+let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+
+/* ⭐ 新增：是否只顯示最愛開關 ===== */
+let showOnlyFav = false;
+
+/* ===== 建立圖層 ===== */
+const markerSource = new ol.source.Vector();
+locations.forEach(l=>{
+  const feature = new ol.Feature({
+    geometry:new ol.geom.Point(ol.proj.fromLonLat(l.coord)),
+    name:l.name,
+    info:l.info,
+    isFavorite: favorites.includes(l.name) // 最愛狀態
+  });
+  markerSource.addFeature(feature);
+});
+
+const markerLayer = new ol.layer.Vector({
+  source: markerSource,
+  style: f => {
+    const isFav = f.get('isFavorite');
+    // ⭐ 若開啟「只顯示最愛」，且此點不是最愛，就不畫出
+    if (showOnlyFav && !isFav) {
+      return null;
+    }
+    return new ol.style.Style({
+      image: new ol.style.Circle({
+        radius:6,
+        fill: new ol.style.Fill({color: isFav ? "#ff3333" : "#ffcc33"}), // 紅色最愛
+        stroke: new ol.style.Stroke({color:"#333", width:1})
+      }),
+      text: new ol.style.Text({
+        text: f.get("name"),
+        offsetY:-15,
+        fill:new ol.style.Fill({color:"#000"}),
+        stroke:new ol.style.Stroke({color:"#fff", width:3})
+      })
+    });
+  }
+});
+map.addLayer(markerLayer);
+
+/* ===== Popup Overlay + 最愛按鈕 ===== */
+const popup = document.getElementById('popup');
+const popupOverlay = new ol.Overlay({ element: popup, offset:[0,-10] });
+map.addOverlay(popupOverlay);
+
+map.on('singleclick', function(evt){
+  const feature = map.forEachFeatureAtPixel(evt.pixel, f => f);
+  if(feature && feature.get('name')){
+    const name = feature.get('name');
+    const isFav = feature.get('isFavorite');
+    popup.innerHTML = feature.get('info') +
+      `<br><button onclick="toggleFavorite('${name}')">${isFav ? '移除最愛' : '加入最愛'}</button>`;
+    popup.style.display = 'block';
+    popupOverlay.setPosition(evt.coordinate);
+  } else {
+    popup.style.display = 'none';
+  }
+});
+
+/* ===== 甜點店清單（支援篩選） ===== */
+const shopList = document.getElementById("shopList");
+
+function renderShopList(){
+  shopList.innerHTML = "";
+
+  // 若只顯示最愛 -> 只列出 favorites 中有的店
+  let listData = locations;
+  if (showOnlyFav) {
+    listData = locations.filter(l => favorites.includes(l.name));
+  }
+
+  if (listData.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "（目前沒有最愛店家）";
+    shopList.appendChild(li);
+    return;
+  }
+
+  listData.forEach(l=>{
+    const li = document.createElement("li");
+    li.innerHTML = "🍰 " + l.name;
+    li.style.cursor="pointer";
+    li.onclick = ()=>{
+      const coord = ol.proj.fromLonLat(l.coord);
+      view.animate({center:coord, zoom:16, duration:1200});
+
+      const feature = markerSource.getFeatures().find(f=>f.get('name')===l.name);
+      popup.innerHTML = feature.get('info') +
+        `<br><button onclick="toggleFavorite('${l.name}')">${feature.get('isFavorite') ? '移除最愛' : '加入最愛'}</button>`;
+      popup.style.display='block';
+      popupOverlay.setPosition(coord);
+    };
+    shopList.appendChild(li);
+  });
+}
+
+/* ===== 切換最愛函數 ===== */
+function toggleFavorite(name){
+  const feature = markerSource.getFeatures().find(f => f.get('name')===name);
+  if(!feature) return;
+  let isFav = feature.get('isFavorite');
+
+  if(isFav){
+    favorites = favorites.filter(n => n!==name);
+    feature.set('isFavorite', false);
+  } else {
+    favorites.push(name);
+    feature.set('isFavorite', true);
+  }
+
+  localStorage.setItem('favorites', JSON.stringify(favorites));
+  markerLayer.changed(); // 更新樣式
+  renderShopList();      // ⭐ 更新清單
+  popup.style.display='none';
+}
+
+/* ===== 最愛篩選開關 ===== */
+function toggleFavFilter(checked){
+  showOnlyFav = checked;
+  markerLayer.changed(); // 重新套用 style，隱藏非最愛
+  renderShopList();      // 更新店家清單
+}
+
+/* ===== 初次產生店家清單 ===== */
+renderShopList();
+
+/* ===== PanTo 功能 ===== */
+function GoInitView(){ view.animate({center:initCenter, zoom:14, duration:1200}); }
+function PanToCJSJ(){ view.animate({center:ol.proj.fromLonLat([120.6640,24.1448]), duration:1200}); }
+function PanToFFN(){ view.animate({center:ol.proj.fromLonLat([120.6643,24.1507]), duration:1200}); }
+function PanToFBT(){ view.animate({center:ol.proj.fromLonLat([120.6524,24.1599]), duration:1200}); }
+function PanToHYTD(){ view.animate({center:ol.proj.fromLonLat([120.6766,24.1641]), duration:1200}); }
+function PanToAB(){ view.animate({center:ol.proj.fromLonLat([120.6612,24.1250]), duration:1200}); }
+function PanToSTSUTD(){ view.animate({center:ol.proj.fromLonLat([120.6588,24.1250]), duration:1200}); }
+
+/* ===== 量測工具 ===== */
+let draw;
+const measureSource = new ol.source.Vector();
+const measureLayer = new ol.layer.Vector({ source: measureSource });
+map.addLayer(measureLayer);
+function addMeasure(type){
+  if (draw) {
+    map.removeInteraction(draw);
+  }
+  draw = new ol.interaction.Draw({ source: measureSource, type:type });
+  map.addInteraction(draw);
+}
+
+// 經緯度定位
+function goToCoord(){
+  const lon=parseFloat(document.getElementById("lon").value);
+  const lat=parseFloat(document.getElementById("lat").value);
+  if(isNaN(lon)||isNaN(lat)){ alert("請輸入正確經緯度"); return; }
+  view.animate({center:ol.proj.fromLonLat([lon,lat]), zoom:16, duration:1200});
+}
+
+// 底圖透明度
+function setOpacity(val){ raster.setOpacity(val); }
+
+// 搜尋功能
+function searchLocation(){
+  const keyword = document.getElementById('searchBox').value.trim();
+  if(!keyword) return;
+  const found = locations.find(l=>l.name.includes(keyword));
+  if(found){
+    const coord = ol.proj.fromLonLat(found.coord);
+    view.animate({center:coord, zoom:16, duration:1200});
+    const feature = markerSource.getFeatures().find(f=>f.get('name')===found.name);
+    popup.innerHTML = feature.get('info') +
+      `<br><button onclick="toggleFavorite('${found.name}')">${feature.get('isFavorite') ? '移除最愛' : '加入最愛'}</button>`;
+    popup.style.display='block';
+    popupOverlay.setPosition(coord);
+  } else { alert("找不到符合的店家！"); }
+}
+</script>
+</body>
+</html>
